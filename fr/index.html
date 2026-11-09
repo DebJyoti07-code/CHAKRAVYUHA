@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHAKRAVYUHA | Threat Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        html { font-size: 18px; }
+        body { background-color: #020617; color: #e2e8f0; min-height: 100vh; font-family: ui-sans-serif, system-ui, sans-serif; }
+        .pipeline-box { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 0.75rem; padding: 1.5rem; }
+        .hidden { display: none !important; }
+        canvas { max-height: 280px; }
+        .recent-scans-container::-webkit-scrollbar { width: 8px; }
+        .recent-scans-container::-webkit-scrollbar-track { background: #0f172a; }
+        .recent-scans-container::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        
+        .globe-container {
+            width: 48px; height: 48px; border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, rgba(6, 182, 212, 0.4), rgba(2, 6, 23, 0.9)), url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M10,50 Q50,10 90,50 Q50,90 10,50 Z" stroke="rgba(6,182,212,0.5)" fill="none"/></svg>');
+            background-size: cover; box-shadow: inset -5px -5px 10px rgba(0,0,0,0.5), 0 0 15px rgba(6, 182, 212, 0.3);
+            animation: rotateGlobe 10s linear infinite;
+        }
+        @keyframes rotateGlobe { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(180deg) scale(1.05); } 100% { transform: rotate(360deg) scale(1); } }
+
+        @media print {
+            body { background: white !important; color: black !important; margin: 0; padding: 0; }
+            .no-print, #liveProtectMenu, #liveProtectBtn, header p, .recent-scans-container, #blockerOverlay { display: none !important; }
+            .pipeline-box { background: #f8fafc !important; border: 1px solid #cbd5e1 !important; color: black !important; margin-bottom: 1rem; page-break-inside: avoid; box-shadow: none !important; }
+            * { text-shadow: none !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            canvas { max-height: 250px !important; }
+            h1, h2, h3, span, p, div, li { color: black !important; }
+            #warningBanner { border: 2px solid #000 !important; background: transparent !important; color: #000 !important; }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <!-- FULL SCREEN RED BLOCKER OVERLAY (Hidden by default) -->
+    <div id="blockerOverlay" class="hidden fixed inset-0 z-[100] bg-red-600 flex-col items-center justify-center text-white p-4 no-print animate-[fadeIn_0.3s_ease-in-out]">
+        <div class="text-center max-w-3xl relative z-10">
+            <h1 class="text-5xl md:text-6xl font-black mb-6 flex items-center justify-center gap-4 tracking-tight">
+                <span>🚨</span> CRITICAL THREAT BLOCKED
+            </h1>
+            <p class="text-xl md:text-2xl mb-12">CHAKRAVYUHA has identified this site as highly malicious.</p>
+            
+            <div class="flex flex-col items-center gap-5">
+                <button onclick="window.close()" class="bg-black hover:bg-slate-900 text-white px-10 py-5 rounded-lg font-bold transition-colors text-xl shadow-2xl cursor-pointer">
+                    Please close this tab immediately.
+                </button>
+                
+                <!-- BYPASS BUTTON -->
+                <button id="bypassBtn" class="text-white/80 hover:text-white underline text-base mt-4 transition-colors cursor-pointer font-medium">
+                    I understand the risks, bypass this warning and continue scrolling
+                </button>
+            </div>
+        </div>
+        <i class="fa-solid fa-shield-halved absolute bottom-8 right-8 text-black/10 text-8xl"></i>
+    </div>
+
+    <header class="max-w-5xl mx-auto mb-10 text-center no-print">
+        <h1 class="text-4xl md:text-5xl font-black tracking-tight text-white mb-3"><i class="fa-solid fa-shield-halved text-cyan-500 mr-3"></i> CHAKRAVYUHA</h1>
+        <p class="text-slate-400 text-base md:text-lg">Advanced Threat Intelligence & Forensic Pipeline</p>
+    </header>
+
+    <main class="max-w-5xl mx-auto flex flex-col items-center">
+        
+        <form id="scanForm" class="w-full no-print">
+            <div class="pipeline-box flex flex-col md:flex-row gap-4 items-center !p-3 bg-slate-900/50">
+                <input type="text" id="scanInput" placeholder="Enter URL or paste a suspicious message..." class="w-full bg-transparent text-slate-200 p-4 text-lg outline-none placeholder:text-slate-600" required />
+                <button type="submit" id="submitBtn" class="w-full md:w-auto bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-10 py-4 text-lg rounded-lg transition-colors whitespace-nowrap"><span id="btnText">Scan Target</span></button>
+            </div>
+        </form>
+
+        <div class="w-full mt-6 pipeline-box !p-0 overflow-hidden no-print">
+            <div class="flex justify-between items-center p-5 border-b border-slate-800">
+                <h2 class="text-2xl font-semibold flex items-center gap-3">Recent scans <i id="recentSpinner" class="fa-solid fa-circle-notch fa-spin text-slate-500 hidden text-base"></i></h2>
+                <i class="fa-solid fa-server text-slate-400 text-xl"></i>
+            </div>
+            <div id="recentScansList" class="w-full max-h-72 overflow-y-auto recent-scans-container flex flex-col text-base"></div>
+        </div>
+
+        <div id="errorState" class="hidden w-full mt-6 p-5 bg-red-900/20 border border-red-500/30 rounded-lg text-red-400 text-lg text-center no-print"><p id="errorMessage"></p></div>
+
+        <div id="loadingState" class="hidden w-full flex-col items-center mt-6 no-print">
+            <div class="pipeline-box w-full text-center py-12 border-cyan-900/50 bg-cyan-950/10">
+                <i class="fa-solid fa-circle-notch fa-spin text-cyan-500 text-5xl mb-5"></i>
+                <h3 class="font-bold text-cyan-400 text-xl">Executing Forensic Pipeline</h3>
+                <p id="loadingStepText" class="text-slate-400 text-base mt-3 font-mono">Initializing...</p>
+            </div>
+        </div>
+
+        <div id="resultsDashboard" class="hidden w-full flex-col items-center animate-[fadeIn_0.5s_ease-in-out] mt-8 gap-8">
+            
+            <div id="communityFlagBanner" class="hidden w-full p-4 bg-red-900/40 border border-red-500 rounded-lg text-red-400 text-center font-bold text-base animate-pulse">
+                <i class="fa-solid fa-users-slash mr-2"></i> WARNING: This target was previously flagged as malicious by the CHAKRAVYUHA Community.
+            </div>
+
+            <div id="warningBanner" class="w-full p-5 rounded-lg border-2 font-bold text-center uppercase tracking-widest text-xl flex items-center justify-center gap-4">
+                <i id="warningIcon" class="fa-solid"></i><span id="warningText"></span>
+            </div>
+
+            <div class="w-full grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div id="riskScoreContainer" class="col-span-1 pipeline-box flex flex-col justify-center items-center text-center border-2 py-8">
+                    <h3 class="text-sm font-bold uppercase tracking-wider mb-3 text-slate-400">Digital Trust Score</h3>
+                    <div id="trustScoreValue" class="text-8xl font-black mb-3"></div>
+                    <p id="trustScoreLabel" class="text-base font-bold uppercase tracking-widest"></p>
+                </div>
+                <div class="col-span-1 pipeline-box flex flex-col items-center justify-center p-6">
+                    <h3 class="text-sm font-bold uppercase tracking-wider mb-4 text-slate-400 border-b border-slate-700 w-full text-center pb-3">Threat Vector Analysis</h3>
+                    <div class="w-full h-56 relative"><canvas id="radarChart"></canvas></div>
+                </div>
+                <div class="col-span-1 pipeline-box flex flex-col items-center justify-center p-6">
+                    <h3 class="text-sm font-bold uppercase tracking-wider mb-4 text-slate-400 border-b border-slate-700 w-full text-center pb-3">6-Month Trust Evolution</h3>
+                    <div class="w-full h-56 relative"><canvas id="lineChart"></canvas></div>
+                </div>
+            </div>
+
+            <div class="w-full pipeline-box bg-slate-900 relative overflow-hidden p-8">
+                <div class="absolute right-0 top-0 p-8 opacity-5"><i class="fa-solid fa-microchip text-9xl"></i></div>
+                <h3 class="text-sm font-bold uppercase tracking-wider mb-4 text-cyan-500">Attack Story Generator (AI)</h3>
+                <p id="aiVerdict" class="text-slate-300 text-lg leading-relaxed relative z-10"></p>
+                <div id="damageControlContainer" class="mt-6 p-5 bg-red-950/30 border-l-4 border-red-500 rounded-r relative z-10">
+                    <h4 class="text-sm uppercase text-red-500 mb-2 font-black">Immediate Damage Control</h4>
+                    <p id="aiDamageControl" class="text-red-200 text-base"></p>
+                </div>
+            </div>
+
+            <div class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div class="pipeline-box">
+                    <h3 class="font-bold text-base text-slate-400 mb-4 border-b border-slate-700 pb-3"><i class="fa-solid fa-fish text-red-400 mr-2"></i> Phishing Intel</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex justify-between"><span>Global DB:</span> <span id="evThreatDb" class="font-bold text-base"></span></li>
+                        <li class="flex justify-between"><span>Community:</span> <span id="evCommunity" class="font-bold text-base"></span></li>
+                        <li class="flex justify-between"><span>Redirects:</span> <span id="evRedirects" class="font-bold text-base"></span></li>
+                    </ul>
+                </div>
+                <div class="pipeline-box">
+                    <h3 class="font-bold text-base text-slate-400 mb-4 border-b border-slate-700 pb-3"><i class="fa-solid fa-globe text-blue-400 mr-2"></i> Domain Identity</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex flex-col"><span class="text-slate-500">Hostname:</span> <span id="evHostname" class="font-mono text-base text-slate-200 truncate mt-1"></span></li>
+                        <li class="flex flex-col mt-3"><span class="text-slate-500">Registered:</span> <span id="evRegistration" class="text-base text-slate-200 mt-1"></span></li>
+                    </ul>
+                </div>
+                <div class="pipeline-box">
+                    <h3 class="font-bold text-base text-slate-400 mb-4 border-b border-slate-700 pb-3"><i class="fa-solid fa-server text-purple-400 mr-2"></i> Infrastructure</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex justify-between"><span>HSTS Policy:</span> <span id="evHsts" class="font-bold text-base"></span></li>
+                        <li class="flex justify-between"><span>CSP Policy:</span> <span id="evCsp" class="font-bold text-base"></span></li>
+                        <li class="flex flex-col mt-3 pt-3 border-t border-slate-800"><span class="text-slate-500">Exposed Ports:</span> <span id="evPorts" class="font-bold text-base mt-1 text-slate-200"></span></li>
+                    </ul>
+                </div>
+                <div class="pipeline-box">
+                    <h3 class="font-bold text-base text-slate-400 mb-4 border-b border-slate-700 pb-3"><i class="fa-solid fa-lock text-emerald-400 mr-2"></i> Certificate</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex justify-between"><span>Status:</span> <span id="evTlsStatus" class="font-bold text-base"></span></li>
+                        <li class="flex justify-between"><span>Validity:</span> <span id="evExpiry" class="font-bold text-base"></span></li>
+                        <li class="flex flex-col mt-3 pt-3 border-t border-slate-800"><span class="text-slate-500">Authority (CA):</span> <span id="evAuthority" class="font-bold text-base mt-1 text-slate-200 truncate"></span></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="w-full flex gap-5 justify-center no-print mt-4">
+                <button onclick="window.print()" class="bg-slate-800 hover:bg-slate-700 px-8 py-3 text-lg rounded-lg font-semibold transition-colors cursor-pointer">
+                    <i class="fa-solid fa-file-pdf mr-2"></i> Export Report
+                </button>
+                <button id="communityReportBtn" class="bg-red-900/50 hover:bg-red-800 text-red-400 border border-red-500/30 px-8 py-3 text-lg rounded-lg font-semibold transition-colors cursor-pointer">
+                    <i class="fa-solid fa-flag mr-2"></i> Report to Community
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- LIVE PROTECT FLOATING WIDGET -->
+    <div class="fixed bottom-8 right-8 z-50 flex flex-col items-end no-print">
+        <div id="liveProtectMenu" class="hidden mb-5 w-80 bg-slate-900/90 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(6,182,212,0.2)] transform transition-all origin-bottom-right">
+            <div class="flex justify-between items-center mb-5">
+                <h3 class="text-cyan-400 font-bold text-base uppercase tracking-wider flex items-center gap-2"><i class="fa-solid fa-satellite-dish animate-pulse"></i> Live Protect</h3>
+                <div class="globe-container"></div>
+            </div>
+            
+            <div class="mb-5">
+                <label class="flex items-center justify-between cursor-pointer mb-3">
+                    <span class="text-base font-semibold text-slate-200"><i class="fa-solid fa-network-wired text-slate-400 mr-2"></i>Routing Proxy</span>
+                    <div class="relative">
+                        <input type="checkbox" id="vpnToggle" class="sr-only">
+                        <div class="block bg-slate-700 w-12 h-7 rounded-full transition-colors" id="vpnBg"></div>
+                        <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform" id="vpnDot"></div>
+                    </div>
+                </label>
+                <select id="vpnLocation" disabled class="w-full bg-slate-800 text-sm text-slate-400 p-3 rounded border border-slate-700 outline-none opacity-50 transition-opacity">
+                    <option>🌍 Optimal Location (Auto)</option>
+                    <option>🇮🇳 Barrackpore, India (Local Node)</option>
+                </select>
+            </div>
+            <hr class="border-slate-700 mb-5">
+            <div>
+                <label class="flex items-center justify-between cursor-pointer mb-2">
+                    <span class="text-base font-semibold text-slate-200"><i class="fa-solid fa-eye text-slate-400 mr-2"></i>Active Link Tracker</span>
+                    <div class="relative">
+                        <input type="checkbox" id="trackerToggle" class="sr-only">
+                        <div class="block bg-slate-700 w-12 h-7 rounded-full transition-colors" id="trackerBg"></div>
+                        <div class="dot absolute left-1 top-1 bg-white w-5 h-5 rounded-full transition-transform" id="trackerDot"></div>
+                    </div>
+                </label>
+            </div>
+        </div>
+        <button id="liveProtectBtn" class="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white p-5 rounded-full shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center w-16 h-16 cursor-pointer">
+            <i class="fa-solid fa-shield-halved text-3xl"></i>
+        </button>
+    </div>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:8000/api/scan';
+        const RECENT_URL = 'http://127.0.0.1:8000/api/recent';
+        const REPORT_URL = 'http://127.0.0.1:8000/api/report';
+        
+        let radarChartInstance = null;
+        let lineChartInstance = null;
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = 'ui-sans-serif, system-ui, sans-serif';
+        Chart.defaults.font.size = 14;
+
+        const form = document.getElementById('scanForm');
+        const input = document.getElementById('scanInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const btnText = document.getElementById('btnText');
+        const errorState = document.getElementById('errorState');
+        const errorMessage = document.getElementById('errorMessage');
+        const loadingState = document.getElementById('loadingState');
+        const loadingStepText = document.getElementById('loadingStepText');
+        const resultsDashboard = document.getElementById('resultsDashboard');
+        const blockerOverlay = document.getElementById('blockerOverlay');
+        const bypassBtn = document.getElementById('bypassBtn');
+
+        document.addEventListener('DOMContentLoaded', fetchRecentScans);
+
+        // Blocker Bypass Logic - Made rock-solid by toggling Tailwind classes instead of raw style
+        bypassBtn.addEventListener('click', () => {
+            blockerOverlay.classList.remove('flex');
+            blockerOverlay.classList.add('hidden'); 
+            document.body.style.overflow = 'auto'; // Ensure the page can scroll again
+            
+            // Save preference so it doesn't trigger again for this session
+            sessionStorage.setItem('chakravyuha_bypass', 'true');
+        });
+
+        async function fetchRecentScans() {
+            const listEl = document.getElementById('recentScansList');
+            const spinner = document.getElementById('recentSpinner');
+            spinner.classList.remove('hidden');
+            try {
+                const response = await fetch(RECENT_URL);
+                const data = await response.json();
+                listEl.innerHTML = ''; 
+                if (data.scans.length === 0) { listEl.innerHTML = '<div class="p-5 text-slate-500 text-base italic">No recent scans found.</div>'; return; }
+                data.scans.forEach((scan, index) => {
+                    const isEven = index % 2 === 0;
+                    const bgClass = isEven ? 'bg-slate-900/50' : 'bg-slate-800/20';
+                    let scoreColor = 'bg-red-500';
+                    if(scan.trust_score > 70) scoreColor = 'bg-emerald-500';
+                    else if (scan.trust_score > 40) scoreColor = 'bg-amber-500';
+
+                    const row = document.createElement('div');
+                    row.className = `flex justify-between items-center p-4 px-5 hover:bg-slate-800 cursor-pointer ${bgClass}`;
+                    row.innerHTML = `
+                        <div class="flex items-center gap-4 truncate"><span class="text-cyan-400 font-medium truncate text-lg" style="max-width: 400px;">${scan.hostname}</span></div>
+                        <div class="flex items-center gap-5">
+                            <span class="text-sm text-slate-500 hidden md:block">${scan.time_ago}</span>
+                            <div class="flex items-center gap-3"><span class="text-base font-bold">${scan.trust_score}</span><div class="w-4 h-4 rounded-full ${scoreColor}"></div></div>
+                        </div>`;
+                    row.onclick = () => { input.value = scan.url; form.dispatchEvent(new Event('submit')); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+                    listEl.appendChild(row);
+                });
+            } catch (err) { listEl.innerHTML = '<div class="p-5 text-red-400 text-base">Failed to load scans. Backend offline.</div>'; } finally { spinner.classList.add('hidden'); }
+        }
+
+        const loadingSteps = ["Querying Threat Databases...", "Checking Community Reports...", "Scanning Ports...", "Validating Trust Chain...", "Generating AI Story..."];
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = input.value.trim();
+            if (!text) return;
+
+            errorState.classList.add('hidden'); resultsDashboard.classList.add('hidden');
+            loadingState.classList.remove('hidden'); loadingState.classList.add('flex');
+            submitBtn.disabled = true; input.disabled = true; btnText.innerHTML = 'Analyzing...';
+            document.getElementById('communityReportBtn').disabled = false;
+            document.getElementById('communityReportBtn').innerHTML = '<i class="fa-solid fa-flag mr-2"></i> Report to Community';
+            document.getElementById('communityReportBtn').classList.replace('text-emerald-400', 'text-red-400');
+
+            let stepIndex = 0; loadingStepText.innerText = loadingSteps[0];
+            const stepInterval = setInterval(() => { stepIndex++; if (stepIndex < loadingSteps.length) loadingStepText.innerText = loadingSteps[stepIndex]; }, 1000);
+
+            try {
+                const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Analysis Failed');
+
+                populateDashboard(data); fetchRecentScans();
+                loadingState.classList.add('hidden'); loadingState.classList.remove('flex');
+                resultsDashboard.classList.remove('hidden'); resultsDashboard.classList.add('flex');
+            } catch (err) {
+                loadingState.classList.add('hidden'); loadingState.classList.remove('flex');
+                errorState.classList.remove('hidden'); errorMessage.innerText = err.message;
+            } finally { clearInterval(stepInterval); submitBtn.disabled = false; input.disabled = false; btnText.innerHTML = 'Scan Target'; }
+        });
+
+        document.getElementById('communityReportBtn').addEventListener('click', async () => {
+            const currentUrl = document.getElementById('scanInput').value;
+            if(!currentUrl) return;
+            try {
+                const response = await fetch(REPORT_URL, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: currentUrl, threat_level: 'high' })
+                });
+                if(response.ok) {
+                    const btn = document.getElementById('communityReportBtn');
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Flagged Successfully';
+                    btn.classList.replace('text-red-400', 'text-emerald-400');
+                    alert("This target has been flagged. Future users will be warned.");
+                }
+            } catch(e) { alert('Failed to report to community. Is backend running?'); }
+        });
+
+        function renderCharts(riskVectors, historyData, score) {
+            const isDanger = score < 40;
+            const primaryColor = isDanger ? 'rgba(239, 68, 68, 1)' : (score > 70 ? 'rgba(16, 185, 129, 1)' : 'rgba(245, 158, 11, 1)');
+            const bgColor = isDanger ? 'rgba(239, 68, 68, 0.2)' : (score > 70 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)');
+
+            const vectorLabels = Object.keys(riskVectors); const vectorData = Object.values(riskVectors);
+
+            if (radarChartInstance) radarChartInstance.destroy();
+            radarChartInstance = new Chart(document.getElementById('radarChart'), {
+                type: 'radar', data: { labels: vectorLabels, datasets: [{ label: 'Risk Level', data: vectorData, backgroundColor: bgColor, borderColor: primaryColor, borderWidth: 2, pointBackgroundColor: primaryColor }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { r: { min: 0, max: 100, ticks: { display: false }, grid: { color: 'rgba(51, 65, 85, 0.5)' }, angleLines: { color: 'rgba(51, 65, 85, 0.5)' }, pointLabels: { font: { size: 12 } } } }, plugins: { legend: { display: false } } }
+            });
+
+            if (lineChartInstance) lineChartInstance.destroy();
+            lineChartInstance = new Chart(document.getElementById('lineChart'), {
+                type: 'line', data: { labels: historyData.labels, datasets: [{ label: 'Trust Score', data: historyData.data, borderColor: primaryColor, backgroundColor: bgColor, fill: true, tension: 0.4 }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { min: 0, max: 100, grid: { color: 'rgba(51, 65, 85, 0.2)' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function populateDashboard(data) {
+            const score = data.trust_score; const riskScoreContainer = document.getElementById('riskScoreContainer'); const warningBanner = document.getElementById('warningBanner');
+            document.getElementById('trustScoreValue').innerText = score;
+            warningBanner.className = "w-full p-5 rounded-lg border-2 font-bold text-center uppercase tracking-widest text-2xl flex items-center justify-center gap-4";
+            riskScoreContainer.className = "col-span-1 pipeline-box flex flex-col justify-center items-center text-center border-2 py-8";
+
+            if (data.evidence.threat_intelligence.community_flagged) {
+                document.getElementById('communityFlagBanner').classList.remove('hidden');
+            } else { document.getElementById('communityFlagBanner').classList.add('hidden'); }
+
+            if (score > 70) {
+                warningBanner.classList.add('bg-emerald-950/50', 'border-emerald-500', 'text-emerald-400');
+                document.getElementById('warningIcon').className = "fa-solid fa-shield-check text-3xl"; document.getElementById('warningText').innerText = "Target is Verified & Safe";
+                riskScoreContainer.classList.add('border-emerald-500/30', 'text-emerald-400'); document.getElementById('trustScoreLabel').innerText = 'Low Risk';
+            } else if (score > 40) {
+                warningBanner.classList.add('bg-amber-950/50', 'border-amber-500', 'text-amber-400');
+                document.getElementById('warningIcon').className = "fa-solid fa-triangle-exclamation text-3xl"; document.getElementById('warningText').innerText = "Suspicious Activity Detected";
+                riskScoreContainer.classList.add('border-amber-500/30', 'text-amber-400'); document.getElementById('trustScoreLabel').innerText = 'Medium Risk';
+            } else {
+                warningBanner.classList.add('bg-red-950/50', 'border-red-500', 'text-red-500');
+                document.getElementById('warningIcon').className = "fa-solid fa-skull-crossbones text-3xl"; document.getElementById('warningText').innerText = "CRITICAL THREAT: MALICIOUS SITE";
+                riskScoreContainer.classList.add('border-red-500/50', 'text-red-500'); document.getElementById('trustScoreLabel').innerText = 'High Risk';
+                
+                // Show Critical Threat Blocker overlay unless bypassed this session
+                if (sessionStorage.getItem('chakravyuha_bypass') !== 'true') {
+                    blockerOverlay.classList.remove('hidden');
+                    blockerOverlay.classList.add('flex');
+                    document.body.style.overflow = 'hidden'; // Stop scrolling while blocker is active
+                }
+            }
+
+            renderCharts(data.risk_vectors, data.history, score);
+
+            const parts = data.ai_investigator.split('Damage Control:');
+            document.getElementById('aiVerdict').innerText = parts[0].replace('Verdict:', '').trim();
+            if (parts[1]) { document.getElementById('aiDamageControl').innerText = parts[1].trim(); document.getElementById('damageControlContainer').classList.remove('hidden'); } 
+            else { document.getElementById('damageControlContainer').classList.add('hidden'); }
+
+            document.getElementById('evThreatDb').innerText = data.evidence.threat_intelligence.flagged_in_database ? "Flagged" : "Clean";
+            document.getElementById('evThreatDb').className = data.evidence.threat_intelligence.flagged_in_database ? "text-red-500 font-bold text-base" : "text-emerald-400 font-bold text-base";
+            document.getElementById('evCommunity').innerText = data.evidence.threat_intelligence.community_flagged ? "Flagged" : "Clean";
+            document.getElementById('evCommunity').className = data.evidence.threat_intelligence.community_flagged ? "text-red-500 font-bold text-base" : "text-emerald-400 font-bold text-base";
+            document.getElementById('evRedirects').innerText = data.evidence.web_security.is_redirected ? "Flagged" : "Clean";
+            document.getElementById('evRedirects').className = data.evidence.web_security.is_redirected ? "text-amber-400 font-bold text-base" : "text-emerald-400 font-bold text-base";
+            document.getElementById('evHostname').innerText = data.evidence.hostname || 'N/A';
+            document.getElementById('evRegistration').innerText = data.evidence.domain_reputation.registered.split(' ')[0] || 'Unknown';
+            document.getElementById('evHsts').innerText = data.evidence.web_security.security_headers.hsts ? "Valid" : "Missing";
+            document.getElementById('evHsts').className = data.evidence.web_security.security_headers.hsts ? "text-emerald-400 font-bold text-base" : "text-red-400 font-bold text-base";
+            document.getElementById('evCsp').innerText = data.evidence.web_security.security_headers.csp ? "Valid" : "Missing";
+            document.getElementById('evCsp').className = data.evidence.web_security.security_headers.csp ? "text-emerald-400 font-bold text-base" : "text-red-400 font-bold text-base";
+            const ports = data.evidence.infrastructure.exposed_services;
+            document.getElementById('evPorts').innerText = ports.length > 0 ? ports.join(", ") : "None Detected";
+            document.getElementById('evPorts').className = ports.length > 0 ? "text-amber-400 font-bold text-base mt-1" : "text-emerald-400 font-bold text-base mt-1";
+            document.getElementById('evTlsStatus').innerText = data.evidence.tls_analysis.secure ? "Secure HTTPS" : "Insecure HTTP";
+            document.getElementById('evTlsStatus').className = data.evidence.tls_analysis.secure ? "text-emerald-400 font-bold text-base" : "text-red-500 font-bold text-base";
+            const days = data.evidence.tls_analysis.days_until_expiry;
+            if (days === 0 || !data.evidence.tls_analysis.secure) {
+                document.getElementById('evExpiry').innerText = "Invalid"; document.getElementById('evExpiry').className = "text-red-500 font-bold text-base";
+            } else {
+                document.getElementById('evExpiry').innerText = `${days} Days Left`; document.getElementById('evExpiry').className = days < 15 ? "text-amber-400 font-bold text-base" : "text-emerald-400 font-bold text-base";
+            }
+            document.getElementById('evAuthority').innerText = data.evidence.tls_analysis.issuer ? (data.evidence.tls_analysis.issuer.O || 'Unknown CA') : 'N/A';
+        }
+
+        const liveProtectBtn = document.getElementById('liveProtectBtn');
+        const liveProtectMenu = document.getElementById('liveProtectMenu');
+        liveProtectBtn.addEventListener('click', () => { liveProtectMenu.classList.toggle('hidden'); });
+
+        const vpnToggle = document.getElementById('vpnToggle'); const vpnBg = document.getElementById('vpnBg'); const vpnDot = document.getElementById('vpnDot'); const vpnLocation = document.getElementById('vpnLocation');
+        vpnToggle.addEventListener('change', (e) => {
+            if (e.target.checked) { vpnBg.classList.replace('bg-slate-700', 'bg-cyan-500'); vpnDot.classList.add('translate-x-5'); vpnLocation.disabled = false; vpnLocation.classList.replace('opacity-50', 'opacity-100'); } 
+            else { vpnBg.classList.replace('bg-cyan-500', 'bg-slate-700'); vpnDot.classList.remove('translate-x-5'); vpnLocation.disabled = true; vpnLocation.classList.replace('opacity-100', 'opacity-50'); }
+        });
+
+        const trackerToggle = document.getElementById('trackerToggle'); 
+        const trackerBg = document.getElementById('trackerBg'); 
+        const trackerDot = document.getElementById('trackerDot');
+
+        trackerToggle.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                trackerBg.classList.replace('bg-slate-700', 'bg-emerald-500');
+                trackerDot.classList.add('translate-x-5');
+                window.postMessage({ type: "CHAKRAVYUHA_TRACKER_TOGGLE", status: "ON" }, "*");
+            } else {
+                trackerBg.classList.replace('bg-emerald-500', 'bg-slate-700');
+                trackerDot.classList.remove('translate-x-5');
+                window.postMessage({ type: "CHAKRAVYUHA_TRACKER_TOGGLE", status: "OFF" }, "*");
+            }
+        });
+    </script>
+</body>
+</html>
